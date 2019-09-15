@@ -22,10 +22,12 @@ export Polar
 export PolarFromCartesian, CartesianFromPolar
 
 # 3D coordinate systems and their transformations
-export Spherical, Cylindrical
+export Spherical, ISOSpherical, Cylindrical
 export SphericalFromCartesian, CartesianFromSpherical,
+       ISOSphericalFromCartesian,
        CylindricalFromCartesian, CartesianFromCylindrical,
-       CylindricalFromSpherical, SphericalFromCylindrical
+       CylindricalFromSpherical, SphericalFromCylindrical,
+       ISOSphericalFromCylindrical
 
 # Common transformations
 export AbstractAffineMap

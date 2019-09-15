@@ -78,6 +78,19 @@ Base.eltype(::Spherical{T}) where {T} = T
 Base.eltype(::Type{Spherical{T}}) where {T} = T
 
 """
+ISOSpherical(r, θ, ϕ) - 3D spherical coordinates
+"""
+struct ISOSpherical{T}
+    r::T
+    θ::T
+    ϕ::T
+end
+Base.show(io::IO, x::ISOSpherical) = print(io, "ISOSpherical(r=$(x.r), θ=$(x.θ) rad, ϕ=$(x.ϕ) rad)")
+Base.isapprox(p1::ISOSpherical, p2::ISOSpherical; kwargs...) = isapprox(p1.r, p2.r; kwargs...) && isapprox(p1.θ, p2.θ; kwargs...) && isapprox(p1.ϕ, p2.ϕ; kwargs...)
+Base.eltype(::ISOSpherical{T}) where {T} = T
+Base.eltype(::Type{ISOSpherical{T}}) where {T} = T
+
+"""
 Cylindrical(r, θ, z) - 3D cylindrical coordinates
 """
 struct Cylindrical{T}
@@ -92,23 +105,29 @@ Base.eltype(::Type{Cylindrical{T}}) where {T} = T
 
 "`SphericalFromCartesian()` - transformation from 3D point to `Spherical` type"
 struct SphericalFromCartesian <: Transformation; end
-"`CartesianFromSpherical()` - transformation from `Spherical` type to `SVector{3}` type"
+"`ISOSphericalFromCartesian()` - transformation from 3D point to `ISOSpherical` type"
+struct ISOSphericalFromCartesian <: Transformation; end
+"`CartesianFromSpherical()` - transformation from `Spherical` or `ISOSpherical` type to `SVector{3}` type"
 struct CartesianFromSpherical <: Transformation; end
 "`CylindricalFromCartesian()` - transformation from 3D point to `Cylindrical` type"
 struct CylindricalFromCartesian <: Transformation; end
 "`CartesianFromCylindrical()` - transformation from `Cylindrical` type to `SVector{3}` type"
 struct CartesianFromCylindrical <: Transformation; end
-"`CylindricalFromSpherical()` - transformation from `Spherical` type to `Cylindrical` type"
+"`CylindricalFromSpherical()` - transformation from `Spherical` or `ISOSpherical` type to `Cylindrical` type"
 struct CylindricalFromSpherical <: Transformation; end
 "`SphericalFromCylindrical()` - transformation from `Cylindrical` type to `Spherical` type"
 struct SphericalFromCylindrical <: Transformation; end
+"`ISOSphericalFromCylindrical()` - transformation from `Cylindrical` type to `ISOSpherical` type"
+struct ISOSphericalFromCylindrical <: Transformation; end
 
 Base.show(io::IO, trans::SphericalFromCartesian) = print(io, "SphericalFromCartesian()")
+Base.show(io::IO, trans::ISOSphericalFromCartesian) = print(io, "ISOSphericalFromCartesian()")
 Base.show(io::IO, trans::CartesianFromSpherical) = print(io, "CartesianFromSpherical()")
 Base.show(io::IO, trans::CylindricalFromCartesian) = print(io, "CylindricalFromCartesian()")
 Base.show(io::IO, trans::CartesianFromCylindrical) = print(io, "CartesianFromCylindrical()")
 Base.show(io::IO, trans::CylindricalFromSpherical) = print(io, "CylindricalFromSpherical()")
 Base.show(io::IO, trans::SphericalFromCylindrical) = print(io, "SphericalFromCylindrical()")
+Base.show(io::IO, trans::ISOSphericalFromCylindrical) = print(io, "ISOSphericalFromCylindrical()")
 
 # Cartesian <-> Spherical
 function (::SphericalFromCartesian)(x::AbstractVector)
@@ -132,6 +151,27 @@ function transform_deriv(::SphericalFromCartesian, x::AbstractVector)
 end
 transform_deriv_params(::SphericalFromCartesian, x::AbstractVector) = error("SphericalFromCartesian has no parameters")
 
+function (::ISOSphericalFromCartesian)(x::AbstractVector{T}) where {T}
+    length(x) == 3 || error("ISOSpherical transform takes a 3D coordinate")
+    r = sqrt(x[1]*x[1] + x[2]*x[2] + x[3]*x[3])
+    ISOSpherical{T}(r, acos(x[3]/r), atan(x[2], x[1]))
+end
+function transform_deriv(::ISOSphericalFromCartesian, x::AbstractVector)
+    length(x) == 3 || error("ISOSpherical transform takes a 3D coordinate")
+    T = eltype(x)
+    error("Not implemented yet!")
+    r = sqrt(x[1]*x[1] + x[2]*x[2] + x[3]*x[3])
+    rxy = sqrt(x[1]*x[1] + x[2]*x[2])
+    fxy = x[2] / x[1]
+    cxy = one(T)/(x[1]*(one(T) + fxy*fxy))
+    f = -x[3]/(rxy*r*r)
+
+    @SMatrix [ x[1]/r   x[2]/r  x[3]/r;
+          -fxy*cxy  cxy     zero(T);
+           f*x[1]   f*x[2]  rxy/(r*r) ]
+end
+transform_deriv_params(::ISOSphericalFromCartesian, x::AbstractVector) = error("ISOSphericalFromCartesian has no parameters")
+
 function (::CartesianFromSpherical)(x::Spherical)
     sθ, cθ = sincos(x.θ)
     sϕ, cϕ = sincos(x.ϕ)
@@ -145,6 +185,21 @@ function transform_deriv(::CartesianFromSpherical, x::Spherical{T}) where T
               sϕ     zero(T)    x.r * cϕ  ]
 end
 transform_deriv_params(::CartesianFromSpherical, x::Spherical) = error("CartesianFromSpherical has no parameters")
+
+function (::CartesianFromSpherical)(x::ISOSpherical)
+    sθ, cθ = sincos(x.θ)
+    sϕ, cϕ = sincos(x.ϕ)
+    SVector(x.r * sθ * cϕ, x.r * sθ * sϕ, x.r * cθ)
+end
+function transform_deriv(::CartesianFromSpherical, x::ISOSpherical{T}) where T
+    error("Not implemented yet!")
+    sθ, cθ = sincos(x.θ)
+    sϕ, cϕ = sincos(x.ϕ)
+    @SMatrix [cθ*cϕ -x.r*sθ*cϕ -x.r*cθ*sϕ ;
+              sθ*cϕ  x.r*cθ*cϕ -x.r*sθ*sϕ ;
+              sϕ     zero(T)    x.r * cϕ  ]
+end
+transform_deriv_params(::CartesianFromSpherical, x::ISOSpherical) = error("CartesianFromSpherical has no parameters")
 
 # Cartesian <-> Cylindrical
 function (::CylindricalFromCartesian)(x::AbstractVector)
@@ -189,6 +244,16 @@ function transform_deriv(::CylindricalFromSpherical, x::Spherical)
 end
 transform_deriv_params(::CylindricalFromSpherical, x::Spherical) = error("CylindricalFromSpherical has no parameters")
 
+function (::CylindricalFromSpherical)(x::ISOSpherical)
+    CylindricalFromCartesian()(CartesianFromSpherical()(x))
+end
+function transform_deriv(::CylindricalFromSpherical, x::ISOSpherical)
+    M1 = transform_deriv(CylindricalFromCartesian(), CartesianFromSpherical()(x))
+    M2 = transform_deriv(CartesianFromSpherical(), x)
+    return M1*M2
+end
+transform_deriv_params(::CylindricalFromSpherical, x::ISOSpherical) = error("CylindricalFromSpherical has no parameters")
+
 function (::SphericalFromCylindrical)(x::Cylindrical)
     SphericalFromCartesian()(CartesianFromCylindrical()(x))
 end
@@ -199,37 +264,64 @@ function transform_deriv(::SphericalFromCylindrical, x::Cylindrical)
 end
 transform_deriv_params(::SphericalFromCylindrical, x::Cylindrical) = error("SphericalFromCylindrical has no parameters")
 
-Base.inv(::SphericalFromCartesian)   = CartesianFromSpherical()
-Base.inv(::CartesianFromSpherical)   = SphericalFromCartesian()
-Base.inv(::CylindricalFromCartesian) = CartesianFromCylindrical()
-Base.inv(::CartesianFromCylindrical) = CylindricalFromCartesian()
-Base.inv(::CylindricalFromSpherical) = SphericalFromCylindrical()
-Base.inv(::SphericalFromCylindrical) = CylindricalFromSpherical()
+function (::ISOSphericalFromCylindrical)(x::Cylindrical)
+    ISOSphericalFromCartesian()(CartesianFromCylindrical()(x))
+end
+function transform_deriv(::ISOSphericalFromCylindrical, x::Cylindrical)
+    M1 = transform_deriv(ISOSphericalFromCartesian(), CartesianFromCylindrical()(x))
+    M2 = transform_deriv(CartesianFromCylindrical(), x)
+    return M1*M2
+end
+transform_deriv_params(::ISOSphericalFromCylindrical, x::Cylindrical) = error("ISOSphericalFromCylindrical has no parameters")
+
+Base.inv(::SphericalFromCartesian)      = CartesianFromSpherical()
+Base.inv(::ISOSphericalFromCartesian)   = CartesianFromSpherical()
+# TODO: How should we invert this?
+Base.inv(::CartesianFromSpherical)      = SphericalFromCartesian()
+Base.inv(::CylindricalFromCartesian)    = CartesianFromCylindrical()
+Base.inv(::CartesianFromCylindrical)    = CylindricalFromCartesian()
+Base.inv(::CylindricalFromSpherical)    = SphericalFromCylindrical()
+# TODO: How should we invert this?
+Base.inv(::SphericalFromCylindrical)    = CylindricalFromSpherical()
+Base.inv(::ISOSphericalFromCylindrical) = CylindricalFromSpherical()
 
 # Inverse composition
-compose(::SphericalFromCartesian,   ::CartesianFromSpherical)   = IdentityTransformation()
-compose(::CartesianFromSpherical,   ::SphericalFromCartesian)   = IdentityTransformation()
-compose(::CylindricalFromCartesian, ::CartesianFromCylindrical) = IdentityTransformation()
-compose(::CartesianFromCylindrical, ::CylindricalFromCartesian) = IdentityTransformation()
-compose(::CylindricalFromSpherical, ::SphericalFromCylindrical) = IdentityTransformation()
-compose(::SphericalFromCylindrical, ::CylindricalFromSpherical) = IdentityTransformation()
+compose(::SphericalFromCartesian,      ::CartesianFromSpherical)      = IdentityTransformation()
+compose(::ISOSphericalFromCartesian,   ::CartesianFromSpherical)      = IdentityTransformation()
+compose(::CartesianFromSpherical,      ::SphericalFromCartesian)      = IdentityTransformation()
+compose(::CartesianFromSpherical,      ::ISOSphericalFromCartesian)   = IdentityTransformation()
+compose(::CylindricalFromCartesian,    ::CartesianFromCylindrical)    = IdentityTransformation()
+compose(::CartesianFromCylindrical,    ::CylindricalFromCartesian)    = IdentityTransformation()
+compose(::CylindricalFromSpherical,    ::SphericalFromCylindrical)    = IdentityTransformation()
+compose(::CylindricalFromSpherical,    ::ISOSphericalFromCylindrical) = IdentityTransformation()
+compose(::SphericalFromCylindrical,    ::CylindricalFromSpherical)    = IdentityTransformation()
+compose(::ISOSphericalFromCylindrical, ::CylindricalFromSpherical)    = IdentityTransformation()
 
 # Cyclic compositions
-compose(::SphericalFromCartesian,   ::CartesianFromCylindrical) = SphericalFromCylindrical()
-compose(::CartesianFromSpherical,   ::SphericalFromCylindrical) = CartesianFromCylindrical()
-compose(::CylindricalFromCartesian, ::CartesianFromSpherical)   = CylindricalFromSpherical()
-compose(::CartesianFromCylindrical, ::CylindricalFromSpherical) = CartesianFromSpherical()
-compose(::CylindricalFromSpherical, ::SphericalFromCartesian)   = CylindricalFromCartesian()
-compose(::SphericalFromCylindrical, ::CylindricalFromCartesian) = SphericalFromCartesian()
+compose(::SphericalFromCartesian,      ::CartesianFromCylindrical)    = SphericalFromCylindrical()
+compose(::ISOSphericalFromCartesian,   ::CartesianFromCylindrical)    = SphericalFromCylindrical()
+compose(::CartesianFromSpherical,      ::SphericalFromCylindrical)    = CartesianFromCylindrical()
+compose(::CartesianFromSpherical,      ::ISOSphericalFromCylindrical) = CartesianFromCylindrical()
+compose(::CylindricalFromCartesian,    ::CartesianFromSpherical)      = CylindricalFromSpherical()
+compose(::CartesianFromCylindrical,    ::CylindricalFromSpherical)    = CartesianFromSpherical()
+compose(::CylindricalFromSpherical,    ::SphericalFromCartesian)      = CylindricalFromCartesian()
+compose(::CylindricalFromSpherical,    ::ISOSphericalFromCartesian)   = CylindricalFromCartesian()
+compose(::SphericalFromCylindrical,    ::CylindricalFromCartesian)    = SphericalFromCartesian()
+compose(::ISOSphericalFromCylindrical, ::CylindricalFromCartesian)    = SphericalFromCartesian()
 
 # For convenience
 Base.convert(::Type{Spherical}, v::AbstractVector) = SphericalFromCartesian()(v)
+Base.convert(::Type{ISOSpherical}, v::AbstractVector) = ISOSphericalFromCartesian()(v)
 Base.convert(::Type{Cylindrical}, v::AbstractVector) = CylindricalFromCartesian()(v)
 
 Base.convert(::Type{V}, s::Spherical) where {V <: AbstractVector} = convert(V, CartesianFromSpherical()(s))
+Base.convert(::Type{V}, s::ISOSpherical) where {V <: AbstractVector} = convert(V, CartesianFromSpherical()(s))
 Base.convert(::Type{V}, c::Cylindrical) where {V <: AbstractVector} = convert(V, CartesianFromCylindrical()(c))
 Base.convert(::Type{V}, s::Spherical) where {V <: StaticVector} = convert(V, CartesianFromSpherical()(s))
+Base.convert(::Type{V}, s::ISOSpherical) where {V <: StaticVector} = convert(V, CartesianFromSpherical()(s))
 Base.convert(::Type{V}, c::Cylindrical) where {V <: StaticVector} = convert(V, CartesianFromCylindrical()(c))
 
 Base.convert(::Type{Spherical}, c::Cylindrical) = SphericalFromCylindrical()(c)
+Base.convert(::Type{ISOSpherical}, c::Cylindrical) = ISOSphericalFromCylindrical()(c)
 Base.convert(::Type{Cylindrical}, s::Spherical) = CylindricalFromSpherical()(s)
+Base.convert(::Type{Cylindrical}, s::ISOSpherical) = CylindricalFromSpherical()(s)
